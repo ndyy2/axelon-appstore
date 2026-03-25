@@ -1,7 +1,9 @@
-import { app, BrowserWindow, ipcMain, net } from 'electron';
+import { app, BrowserWindow, ipcMain, net, shell } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { exec } from 'child_process';
+import fs from 'fs';
+import os from 'os';
 import util from 'util';
 
 const execAsync = util.promisify(exec);
@@ -116,9 +118,9 @@ ipcMain.handle('flatpak:get-metadata', async (_e, appId) => {
 
 ipcMain.handle('app:check-update', async () => {
   return new Promise((resolve) => {
-    const repo = 'axelon-automation/app-store';
+    const repo = 'ndyy2/axelon-appstore';
     const request = net.request(`https://api.github.com/repos/${repo}/releases/latest`);
-    
+
     request.on('response', (response) => {
       let data = '';
       response.on('data', (chunk) => { data += chunk; });
@@ -127,13 +129,13 @@ ipcMain.handle('app:check-update', async () => {
           if (response.statusCode !== 200) {
             return resolve({ ok: false, msg: `GitHub API error: ${response.statusCode}` });
           }
-          
+
           const release = JSON.parse(data);
           const latestVersion = release.tag_name.replace(/^v/, '');
           const currentVersion = app.getVersion();
-          
+
           const hasUpdate = latestVersion !== currentVersion;
-          
+
           resolve({
             ok: true,
             available: hasUpdate,
@@ -141,20 +143,85 @@ ipcMain.handle('app:check-update', async () => {
             latest: latestVersion,
             name: release.name,
             notes: release.body,
-            url: release.html_url
+            url: release.html_url,
+            assets: release.assets
           });
         } catch (err) {
           resolve({ ok: false, msg: 'Failed to parse GitHub response' });
         }
       });
     });
-    
+
     request.on('error', (err) => {
       resolve({ ok: false, msg: err.message });
     });
-    
+
     request.end();
   });
+});
+
+ipcMain.handle('app:perform-update', async (event, asset) => {
+  return new Promise((resolve) => {
+    const downloadUrl = asset.browser_download_url;
+    const destPath = path.join(os.homedir(), 'Downloads', asset.name);
+    
+    const download = (url) => {
+      const request = net.request(url);
+      
+      request.on('response', (response) => {
+        if (response.statusCode === 302 || response.statusCode === 301) {
+          return download(response.headers.location);
+        }
+
+        if (response.statusCode !== 200) {
+          return resolve({ ok: false, msg: `Download failed: ${response.statusCode}` });
+        }
+
+        const totalBytes = parseInt(response.headers['content-length'], 10);
+        let downloadedBytes = 0;
+        let lastTime = Date.now();
+        let lastBytes = 0;
+
+        const fileStream = fs.createWriteStream(destPath);
+        
+        response.on('data', (chunk) => {
+          downloadedBytes += chunk.length;
+          fileStream.write(chunk);
+          
+          const now = Date.now();
+          if (now - lastTime > 500) {
+            const speed = (downloadedBytes - lastBytes) / ((now - lastTime) / 1000);
+            event.sender.send('app:update-progress', {
+              progress: Math.floor((downloadedBytes / totalBytes) * 100),
+              downloaded: downloadedBytes,
+              total: totalBytes,
+              speed: speed
+            });
+            lastTime = now;
+            lastBytes = downloadedBytes;
+          }
+        });
+
+        response.on('end', () => {
+          fileStream.end();
+          try { fs.chmodSync(destPath, 0o755); } catch {}
+          resolve({ ok: true, path: destPath });
+        });
+      });
+
+      request.on('error', (err) => {
+        resolve({ ok: false, msg: err.message });
+      });
+
+      request.end();
+    };
+
+    download(downloadUrl);
+  });
+});
+
+ipcMain.handle('app:open-folder', async (_e, filePath) => {
+  shell.showItemInFolder(filePath);
 });
 
 // ── Lifecycle ──
