@@ -1,0 +1,103 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* Custom Inter font */
+:root {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  
+  /* Default (Dark) Variables */
+  --color-bg-base: #09090b;
+  --color-surface-base: rgba(24, 24, 27, 0.4);
+  --color-surface-hover: rgba(255, 255, 255, 0.05);
+  --color-border-base: rgba(255, 255, 255, 0.08);
+  --color-text-main: #ffffff;
+  --color-text-dim: #71717a;
+  
+  --color-accent: #7c3aed;
+  --color-accent-light: #a78bfa;
+  --color-accent-glow: rgba(124, 58, 237, 0.3);
+}
+
+.light {
+  --color-bg-base: #f8fafc;
+  --color-surface-base: rgba(255, 255, 255, 0.8);
+  --color-surface-hover: rgba(0, 0, 0, 0.04);
+  --color-border-base: rgba(0, 0, 0, 0.12);
+  --color-text-main: #0f172a;
+  --color-text-dim: #475569;
+  --color-accent-glow: rgba(124, 58, 237, 0.1);
+}
+
+@theme {
+  --font-sans: var(--font-sans);
+  --color-accent: var(--color-accent);
+  --color-accent-light: var(--color-accent-light);
+  --color-accent-glow: var(--color-accent-glow);
+  
+  --color-bg-base: var(--color-bg-base);
+  --color-surface-base: var(--color-surface-base);
+  --color-surface-hover: var(--color-surface-hover);
+  --color-border-base: var(--color-border-base);
+  --color-text-main: var(--color-text-main);
+  --color-text-dim: var(--color-text-dim);
+  
+  /* Maintain compatibility with previous manual violet overrides */
+  --color-violet-500: var(--color-accent);
+  --color-violet-600: var(--color-accent);
+  --color-violet-400: var(--color-accent);
+  
+  --shadow-accent: 0 10px 15px -3px var(--color-accent-glow);
+}
+
+/* Staggered fade-in animation for grid/list items */
+/* Staggered fade-in animation for grid/list items */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-up {
+  animation: fadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Page mount transition for smooth route changes */
+@keyframes pageEnter {
+  from { opacity: 0; transform: scale(0.98) translateY(8px); }
+  to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.animate-page-enter {
+  animation: pageEnter 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.animate-fade-in {
+  animation: fadeIn 0.3s ease both;
+}
+
+@keyframes zoomIn {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.animate-zoom-in {
+  animation: zoomIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { 
+  background: var(--color-border-base); 
+  border-radius: 3px; 
+}
+::-webkit-scrollbar-thumb:hover { 
+  background: var(--color-accent); 
+  opacity: 0.5;
+}
+
+/* Hide scrollbar utility for horizontal scroll areas */
+@layer utilities {
+  .hide-scrollbar::-webkit-scrollbar { display: none; }
+  .hide-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+}
