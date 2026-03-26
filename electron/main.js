@@ -114,6 +114,126 @@ ipcMain.handle('flatpak:get-metadata', async (_e, appId) => {
   }
 });
 
+// ── Yay (AUR) IPC Handlers ──
+
+async function isArch() {
+  try {
+    const osRelease = await fs.promises.readFile('/etc/os-release', 'utf8');
+    return osRelease.includes('ID=arch') || osRelease.includes('ID_LIKE=arch');
+  } catch {
+    return false;
+  }
+}
+
+ipcMain.handle('yay:is-supported', async () => {
+  if (process.platform !== 'linux') return { ok: true, supported: false };
+  const arch = await isArch();
+  if (!arch) return { ok: true, supported: false };
+  try {
+    await execAsync('which yay');
+    return { ok: true, supported: true };
+  } catch {
+    return { ok: true, supported: false };
+  }
+});
+
+ipcMain.handle('yay:search', async (_e, query) => {
+  try {
+    // yay -Ss returns <repo>/<name> <version> <stats> <status>\n  <description>
+    // We'll use a simplified search or parse it carefully
+    const { stdout } = await execAsync(`yay -Ss "${query.replace(/"/g, '')}"`);
+    return { ok: true, data: stdout };
+  } catch {
+    return { ok: true, data: '' };
+  }
+});
+
+ipcMain.handle('yay:list-installed', async () => {
+  try {
+    const { stdout } = await execAsync('yay -Qm');
+    return { ok: true, data: stdout };
+  } catch {
+    return { ok: false, data: '' };
+  }
+});
+
+ipcMain.handle('yay:install', async (_e, pkgName) => {
+  try {
+    // Using pkexec to handle authentication
+    const { stdout } = await execAsync(`pkexec yay -S --noconfirm ${pkgName}`);
+    return { ok: true, msg: stdout };
+  } catch (err) {
+    return { ok: false, msg: err.message };
+  }
+});
+
+ipcMain.handle('yay:uninstall', async (_e, pkgName) => {
+  try {
+    const { stdout } = await execAsync(`pkexec yay -Rs --noconfirm ${pkgName}`);
+    return { ok: true, msg: stdout };
+  } catch (err) {
+    return { ok: false, msg: err.message };
+  }
+});
+
+ipcMain.handle('yay:check-updates', async () => {
+  try {
+    const { stdout } = await execAsync('yay -Qua');
+    return { ok: true, data: stdout };
+  } catch {
+    return { ok: true, data: '' };
+  }
+});
+
+ipcMain.handle('yay:update-all', async () => {
+  try {
+    const { stdout } = await execAsync('pkexec yay -Sua --noconfirm');
+    return { ok: true, msg: stdout };
+  } catch (err) {
+    return { ok: false, msg: err.message };
+  }
+});
+
+ipcMain.handle('yay:get-local-icon', async (_e, pkgName) => {
+  try {
+    // Try to find icon paths for the package using pacman -Ql
+    const { stdout } = await execAsync(`pacman -Ql ${pkgName} | grep -E '\\.png$|\\.svg$' | grep /icons/hicolor/`);
+    if (!stdout) return { ok: false };
+    
+    const lines = stdout.trim().split('\n').map(l => l.split(' ')[1]).filter(Boolean);
+    
+    // Priority: SVG > 256x256 > 128x128 > 64x64 > 48x48
+    const bestIcon = lines.find(l => l.endsWith('.svg')) || 
+                     lines.find(l => l.includes('256x256')) ||
+                     lines.find(l => l.includes('128x128')) ||
+                     lines.find(l => l.includes('64x64')) ||
+                     lines.find(l => l.includes('48x48')) ||
+                     lines[0];
+    
+    if (bestIcon && fs.existsSync(bestIcon)) {
+      const content = await fs.promises.readFile(bestIcon);
+      const ext = path.extname(bestIcon).substring(1);
+      const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext}`;
+      return { ok: true, data: `data:${mime};base64,${content.toString('base64')}` };
+    }
+    return { ok: false };
+  } catch {
+    // Fallback: search by name in common icon paths if pacman -Ql fails
+    try {
+      const { stdout } = await execAsync(`find /usr/share/icons/hicolor -name "${pkgName}.*" | grep -E '\\.png$|\\.svg$'`);
+      if (stdout) {
+        const iconPaths = stdout.trim().split('\n');
+        const bestIcon = iconPaths.find(l => l.endsWith('.svg')) || iconPaths[0];
+        const content = await fs.promises.readFile(bestIcon);
+        const ext = path.extname(bestIcon).substring(1);
+        const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext}`;
+        return { ok: true, data: `data:${mime};base64,${content.toString('base64')}` };
+      }
+    } catch {}
+    return { ok: false };
+  }
+});
+
 // ── App Self-Update (GitHub) ──
 
 ipcMain.handle('app:check-update', async () => {

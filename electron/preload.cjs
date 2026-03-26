@@ -18,3 +18,14 @@ contextBridge.exposeInMainWorld('flatpak', {
     return () => ipcRenderer.removeListener('app:update-progress', listener);
   }
 });
+
+contextBridge.exposeInMainWorld('yay', {
+  isSupported: () => ipcRenderer.invoke('yay:is-supported'),
+  search: (query) => ipcRenderer.invoke('yay:search', query),
+  listInstalled: () => ipcRenderer.invoke('yay:list-installed'),
+  install: (pkgName) => ipcRenderer.invoke('yay:install', pkgName),
+  uninstall: (pkgName) => ipcRenderer.invoke('yay:uninstall', pkgName),
+  checkUpdates: () => ipcRenderer.invoke('yay:check-updates'),
+  updateAll: () => ipcRenderer.invoke('yay:update-all'),
+  getLocalIcon: (pkgName) => ipcRenderer.invoke('yay:get-local-icon', pkgName),
+});

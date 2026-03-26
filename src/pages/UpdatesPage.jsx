@@ -56,16 +56,30 @@ export default function UpdatesPage() {
     }
   };
 
+  const [aurSupported, setAurSupported] = useState(false);
+
+  useEffect(() => {
+    window.yay?.isSupported().then(r => setAurSupported(r.supported));
+  }, []);
+
   const update = async () => {
-    if (!window.flatpak) return;
     setLoading(true);
     setStatus(null);
     try {
-      const r = await window.flatpak.updateAll();
-      setStatus(r.ok
-        ? { type: 'ok', msg: 'All flatpak apps are up to date!' }
-        : { type: 'err', msg: r.msg || 'Update failed.' }
-      );
+      const flatpakPromise = window.flatpak?.updateAll() || Promise.resolve({ ok: false });
+      const yayPromise = aurSupported ? (window.yay?.updateAll() || Promise.resolve({ ok: false })) : Promise.resolve({ ok: false });
+      
+      const [fr, yr] = await Promise.all([flatpakPromise, yayPromise]);
+      
+      if (fr.ok && yr.ok) {
+        setStatus({ type: 'ok', msg: 'All Flatpak and AUR apps are up to date!' });
+      } else if (fr.ok) {
+        setStatus({ type: 'ok', msg: 'Flatpak apps updated, but AUR update failed.' });
+      } else if (yr.ok) {
+        setStatus({ type: 'ok', msg: 'AUR apps updated, but Flatpak update failed.' });
+      } else {
+        setStatus({ type: 'err', msg: 'Update failed for both Flatpak and AUR.' });
+      }
     } catch {
       setStatus({ type: 'err', msg: 'An error occurred while updating.' });
     }
@@ -190,8 +204,8 @@ export default function UpdatesPage() {
           </div>
 
           <p className="text-sm text-text-dim max-w-sm leading-relaxed">
-            Check for available updates for all your installed Flatpak applications.
-            This will update every app to the latest version from Flathub.
+            Check for available updates for all your installed Flatpak {aurSupported && 'and AUR '}applications.
+            This will update every app to the latest version.
           </p>
 
           <button

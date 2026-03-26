@@ -11,33 +11,53 @@ function parseList(raw) {
   }).filter(Boolean);
 }
 
+function parseYayList(raw) {
+  if (!raw?.trim()) return [];
+  return raw.trim().split('\n').map((l) => {
+    const [name, ver] = l.split(/\s+/);
+    if (!name) return null;
+    return { appId: name.trim(), name: name.trim(), ver: (ver||'').trim(), origin: 'AUR', source: 'aur' };
+  }).filter(Boolean);
+}
+
 export default function InstalledPage() {
   const [apps, setApps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [removing, setRemoving] = useState({});
   const [appToUninstall, setAppToUninstall] = useState(null);
+  const [aurSupported, setAurSupported] = useState(false);
+
+  useEffect(() => {
+    window.yay?.isSupported().then(r => setAurSupported(r.supported));
+  }, []);
 
   const load = useCallback(async () => {
-    if (!window.flatpak) return;
     setLoading(true);
     try {
-      const r = await window.flatpak.listInstalled();
-      if (r.ok) {
-        const list = parseList(r.data);
-        list.sort((a, b) => a.name.localeCompare(b.name));
-        setApps(list);
-      }
+      const flatpakPromise = window.flatpak?.listInstalled() || Promise.resolve({ ok: false });
+      const yayPromise = aurSupported ? (window.yay?.listInstalled() || Promise.resolve({ ok: false })) : Promise.resolve({ ok: false });
+      
+      const [fr, yr] = await Promise.all([flatpakPromise, yayPromise]);
+      
+      let list = [];
+      if (fr.ok) list = parseList(fr.data);
+      if (yr.ok) list = [...list, ...parseYayList(yr.data)];
+      
+      list.sort((a, b) => a.name.localeCompare(b.name));
+      setApps(list);
     } catch {}
     finally { setLoading(false); }
-  }, []);
+  }, [aurSupported]);
 
   useEffect(() => { load(); }, [load]);
 
-  const uninstall = async (id) => {
-    if (!window.flatpak) return;
+  const uninstall = async (app) => {
+    const id = app.appId;
     setRemoving(p => ({ ...p, [id]: true }));
     try {
-      const r = await window.flatpak.uninstall(id);
+      const r = app.source === 'aur'
+        ? await window.yay.uninstall(id)
+        : await window.flatpak.uninstall(id);
       if (r.ok) setApps(p => p.filter(a => a.appId !== id));
     } catch {}
     finally { setRemoving(p => { const n = { ...p }; delete n[id]; return n; }); }
@@ -58,7 +78,12 @@ export default function InstalledPage() {
 
       <div className="flex-1 overflow-y-auto px-9 pb-9 relative z-[1]">
         <h2 className="text-2xl font-bold tracking-tight mb-1 text-text-main">Installed</h2>
-        {!loading && <p className="text-sm text-text-dim mb-6">{apps.length} apps installed via Flatpak</p>}
+        {!loading && (
+          <p className="text-sm text-text-dim mb-6">
+            {apps.filter(a => a.source !== 'aur').length} apps via Flatpak
+            {aurSupported && ` • ${apps.filter(a => a.source === 'aur').length} via AUR`}
+          </p>
+        )}
 
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-4 text-text-dim">
@@ -83,6 +108,7 @@ export default function InstalledPage() {
                   <AppIcon 
                     appId={a.appId} 
                     name={a.name} 
+                    source={a.source}
                     containerClass="w-10 h-10 rounded-lg bg-surface-hover text-accent" 
                     className="w-6 h-6" 
                   />
@@ -111,7 +137,7 @@ export default function InstalledPage() {
         onClose={() => setAppToUninstall(null)}
         title="Uninstall Application"
         confirmLabel="Uninstall"
-        onConfirm={() => uninstall(appToUninstall.appId)}
+        onConfirm={() => uninstall(appToUninstall)}
         isDanger={true}
       >
         Are you sure you want to remove <span className="font-bold text-white">{appToUninstall?.name}</span>? 

@@ -40,50 +40,58 @@ export function DownloadProvider({ children }) {
     setQueue(q => q.filter(item => item.status === 'installing'));
   }, []);
 
-  const installApp = useCallback(async (appId, name) => {
-    if (!window.flatpak) return false;
-    const id = addDownload(appId, name);
+  const installApp = useCallback(async (app, name) => {
+    const isObject = typeof app === 'object';
+    const appId = isObject ? app.appId : app;
+    const appName = isObject ? app.name : (name || appId);
+    const source = isObject ? app.source : 'flatpak';
+
+    if (!window.flatpak && source !== 'aur') return false;
+    if (source === 'aur' && !window.yay) return false;
+
+    const id = addDownload(appId, appName);
     
-    // Fetch real size first
+    // Fetch real size first (Flatpak only for now)
     let totalBytes = 0;
-    try {
-      const info = await window.flatpak.remoteInfo(appId);
-      if (info.ok && info.data) {
-        const match = info.data.match(/Download:\s+([\d.]+)\s+(\w+)/);
-        if (match) {
-          const val = parseFloat(match[1]);
-          const unit = match[2].toUpperCase();
-          totalBytes = val * (unit.startsWith('G') ? 1024**3 : unit.startsWith('M') ? 1024**2 : 1024);
+    if (source === 'flatpak') {
+      try {
+        const info = await window.flatpak.remoteInfo(appId);
+        if (info.ok && info.data) {
+          const match = info.data.match(/Download:\s+([\d.]+)\s+(\w+)/);
+          if (match) {
+            const val = parseFloat(match[1]);
+            const unit = match[2].toUpperCase();
+            totalBytes = val * (unit.startsWith('G') ? 1024**3 : unit.startsWith('M') ? 1024**2 : 1024);
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
 
     startDownload(id);
     updateProgress(id, { totalBytes });
 
     let downloadedBytes = 0;
-    let startTime = Date.now();
     
     const ticker = setInterval(() => {
       // Simulate download behavior
-      const speed = (2 + Math.random() * 5) * 1024 * 1024; // 2-7 MB/s
-      downloadedBytes += speed * 0.5; // Ticker runs every 500ms
+      const speed = (source === 'aur' ? 1 + Math.random() * 3 : 2 + Math.random() * 5) * 1024 * 1024; 
+      downloadedBytes += speed * 0.5; 
       
       if (totalBytes > 0) {
-        if (downloadedBytes >= totalBytes * 0.95) downloadedBytes = totalBytes * 0.95; // Don't finish early
+        if (downloadedBytes >= totalBytes * 0.95) downloadedBytes = totalBytes * 0.95; 
         const progress = Math.floor((downloadedBytes / totalBytes) * 100);
-        const eta = Math.ceil((totalBytes - downloadedBytes) / speed);
-        updateProgress(id, { progress, downloadedBytes, speed, eta });
+        updateProgress(id, { progress, downloadedBytes, speed });
       } else {
-        // Fallback progress if size unknown
-        downloadedBytes += speed * 0.5;
         const mockProgress = Math.min(95, Math.floor(downloadedBytes / (50 * 1024 * 1024) * 100));
-        updateProgress(id, { progress: mockProgress, downloadedBytes, speed, eta: 0 });
+        updateProgress(id, { progress: mockProgress, downloadedBytes, speed });
       }
     }, 500);
 
     try {
-      const res = await window.flatpak.install(appId);
+      const res = source === 'aur' 
+        ? await window.yay.install(appId)
+        : await window.flatpak.install(appId);
+      
       clearInterval(ticker);
       completeDownload(id, res.ok);
       return res.ok;

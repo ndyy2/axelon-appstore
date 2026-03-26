@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { fetchFlathubAppData } from '../lib/flathub.js';
 import AppIcon from '../components/AppIcon.jsx';
 import { useDownloads } from '../context/DownloadContext.jsx';
@@ -9,6 +9,8 @@ import { useTheme } from '../context/ThemeContext.jsx';
 export default function AppDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const location = useLocation();
+  const source = new URLSearchParams(location.search).get('source') || 'flatpak';
   const { installApp } = useDownloads();
   const { mode } = useTheme();
   const [info, setInfo] = useState(null);
@@ -59,37 +61,41 @@ export default function AppDetailPage() {
           if (infoRes.ok && infoRes.data) setInfo(infoRes.data);
         }
 
-        // 3. Rich Flathub metadata
-        const flathubRes = await fetchFlathubAppData(id);
-        if (flathubRes) setRichData(flathubRes);
+        // 3. Rich Flathub metadata (only for flatpak)
+        if (source === 'flatpak') {
+          const flathubRes = await fetchFlathubAppData(id);
+          if (flathubRes) setRichData(flathubRes);
 
-        // 4. Remote info for sizes (uninstalled apps)
-        if (window.flatpak && window.flatpak.remoteInfo) {
-          const remoteRes = await window.flatpak.remoteInfo(id);
-          if (remoteRes.ok && remoteRes.data) {
-            const dSize = remoteRes.data.match(/Download:\s*([0-9.,]+\s*[A-Za-z]+)/i)?.[1];
-            const iSize = remoteRes.data.match(/Installed:\s*([0-9.,]+\s*[A-Za-z]+)/i)?.[1];
-            if (dSize || iSize) {
-              setSizeData({ download: dSize, installed: iSize });
+          // 4. Remote info for sizes (uninstalled apps)
+          if (window.flatpak && window.flatpak.remoteInfo) {
+            const remoteRes = await window.flatpak.remoteInfo(id);
+            if (remoteRes.ok && remoteRes.data) {
+              const dSize = remoteRes.data.match(/Download:\s*([0-9.,]+\s*[A-Za-z]+)/i)?.[1];
+              const iSize = remoteRes.data.match(/Installed:\s*([0-9.,]+\s*[A-Za-z]+)/i)?.[1];
+              if (dSize || iSize) {
+                setSizeData({ download: dSize, installed: iSize });
+              }
+            }
+          } else if (flathubRes) {
+            // Fallback to releases metadata if remoteInfo is not available (browser context)
+            const rel = flathubRes.releases?.[0];
+            if (rel?.size_download || rel?.size_installed) {
+              setSizeData({
+                download: bytesToHuman(rel.size_download),
+                installed: bytesToHuman(rel.size_installed),
+              });
             }
           }
-        } else if (flathubRes) {
-          // Fallback to releases metadata if remoteInfo is not available (browser context)
-          const rel = flathubRes.releases?.[0];
-          if (rel?.size_download || rel?.size_installed) {
-            setSizeData({
-              download: bytesToHuman(rel.size_download),
-              installed: bytesToHuman(rel.size_installed),
-            });
-          }
-        }
 
-        // 5. Raw Metadata (Permissions)
-        if (window.flatpak && window.flatpak.getMetadata) {
-          const metaRes = await window.flatpak.getMetadata(id);
-          if (metaRes.ok && metaRes.data) {
-            setPermissions(parsePermissions(metaRes.data));
+          // 5. Raw Metadata (Permissions)
+          if (window.flatpak && window.flatpak.getMetadata) {
+            const metaRes = await window.flatpak.getMetadata(id);
+            if (metaRes.ok && metaRes.data) {
+              setPermissions(parsePermissions(metaRes.data));
+            }
           }
+        } else if (source === 'aur' && window.yay) {
+          // AUR basic info fetcher could go here
         }
 
       } catch (e) {
@@ -99,7 +105,7 @@ export default function AppDetailPage() {
       }
     }
     loadData();
-  }, [id]);
+  }, [id, source]);
 
   function parsePermissions(raw) {
     const p = { network: false, system: false, device: false, x11: false, wayland: false, filesystem: [] };
@@ -128,7 +134,7 @@ export default function AppDetailPage() {
     setInstalling(true);
     const appName = richData?.name || id.split('.').pop() || id;
     try {
-      const ok = await installApp(id, appName);
+      const ok = await installApp({ appId: id, name: appName, source });
       if (ok) setIsInstalled(true);
     } finally {
       setInstalling(false);
@@ -139,7 +145,9 @@ export default function AppDetailPage() {
     if (!window.flatpak) return;
     setInstalling(true);
     try {
-      const res = await window.flatpak.uninstall(id);
+      const res = source === 'aur' 
+        ? await window.yay.uninstall(id)
+        : await window.flatpak.uninstall(id);
       if (res.ok) setIsInstalled(false);
     } finally {
       setInstalling(false);
@@ -186,6 +194,7 @@ export default function AppDetailPage() {
           <AppIcon 
             appId={id} 
             name={appName} 
+            source={source}
             containerClass="w-32 h-32 rounded-3xl bg-gradient-to-br from-accent/20 to-surface-base border border-border-base shadow-xl shadow-accent/5" 
             className="w-24 h-24" 
           />
